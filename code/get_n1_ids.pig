@@ -85,9 +85,14 @@ n1_ids            = LOAD '$NBRHOOD_PATH/n1_ids'      AS (user_id:long);
 -- n1_ids_seen    = FOREACH n1_ids_g GENERATE group AS user_id, COUNT(n1_ids_all) AS seen;
 -- rmf                     $NBRHOOD_PATH/n1_ids_seen
 -- STORE n1_ids_seen INTO '$NBRHOOD_PATH/n1_ids_seen';
--- n1_ids_seen    = LOAD  '$NBRHOOD_PATH/n1_ids_seen'      AS (user_id:long, seen:long);
--- n1_ids         = FOREACH n1_ids_seen GENERATE user_id;
+n1_ids_seen    = LOAD  '$NBRHOOD_PATH/n1_ids_seen'      AS (user_id:long, seen:long);
 
+-- Found 4 items
+-- /data/sn/tw/projects/explorations/bigdata/a_follows_b_1                	         321434	       313.9 KB
+-- /data/sn/tw/projects/explorations/bigdata/n1_ids                       	         192831	       188.3 KB
+-- /data/sn/tw/projects/explorations/bigdata/n1_ids_seen                  	         237603	       232.0 KB
+-- /data/sn/tw/projects/explorations/bigdata/tweet_1                      	       15984000	        15.2 MB
+--                                                        4 entries       	       16735868	        16.0 MB
 -- hdp-mv   /data/sn/tw/projects/explorations/bigdata/n1_ids /tmp/n1_ids
 -- hdp-catd /tmp/n1_ids | hdp-put - /data/sn/tw/projects/explorations/bigdata/n1_ids
 -- mkdir /mnt/tmp/bigdata
