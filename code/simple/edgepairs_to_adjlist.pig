@@ -18,8 +18,7 @@
 -- Released under the Apache License
 --
 
-%default A_REPLIES_B_FILE      'a_replies_b.tsv'
-%default REPLIES_ADJ_LIST_FILE 'replies_adj_list.tsv'
+%default DATA_DIR      '/home/flip/ics/hadoop/hadoop_book/data/sampled'
 
 --
 -- Edges file is tab-separated: source label in first column, destination label in second
@@ -39,7 +38,7 @@
 -- -- kramer	jerry
 -- -- kramer	Newman
 --
-Edges    = LOAD '$A_REPLIES_B_FILE' AS (src: chararray, dest:chararray);
+a_replies_b    = LOAD '$DATA_DIR/a_replies_b.tsv' AS (src: chararray, dest:chararray);
 
 --
 -- Group edges by their source node
@@ -50,10 +49,10 @@ Edges    = LOAD '$A_REPLIES_B_FILE' AS (src: chararray, dest:chararray);
 -- -- (george,{(george,jerry),(george,kramer)})
 -- -- (kramer,{(kramer,Elaine),(kramer,george),(kramer,jerry),(kramer,Newman)})
 --
-SrcEdges = GROUP Edges BY src;
+replies_out_g = GROUP a_replies_b BY src;
 
 --
--- Retain only the distinct destination nodes
+-- Retain only the distinct destination nodes along with the number of replies exchanged
 --
 -- -- (Elaine,{(george),(jerry)})
 -- -- (Newman,{(Elaine)})
@@ -61,8 +60,8 @@ SrcEdges = GROUP Edges BY src;
 -- -- (jerry,{(Drake),(Elaine)})
 -- -- (kramer,{(Elaine),(Newman),(george),(jerry)})
 --
-RepliesAdjList = FOREACH SrcEdges { nbrs = DISTINCT Edges.dest ; GENERATE group, nbrs ; };
+replies_out = FOREACH replies_out_g { nbrs = DISTINCT a_replies_b.dest ; GENERATE group, nbrs, COUNT(a_replies_b) ; };
 
 -- Save the output.
-rmf                        $REPLIES_ADJ_LIST_FILE
-STORE RepliesAdjList INTO '$REPLIES_ADJ_LIST_FILE';
+rmf                        $DATA_DIR/replies_out.tsv
+STORE replies_out    INTO '$DATA_DIR/replies_out.tsv';
