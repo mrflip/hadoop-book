@@ -59,9 +59,9 @@ n2_ids_u         = UNION id_at_o, id_at_i, id_fo_o;
 n2_ids_g         = GROUP n2_ids_u BY user_id PARALLEL 10;
 n2_ids_c         = FOREACH n2_ids_g GENERATE group AS user_id, COUNT(n2_ids_u) AS seen;
 n2_ids           = FILTER n2_ids_c BY seen >= 4;
-rmf                      $TMP_PATH/n2_ids_2
-STORE n2_ids       INTO '$TMP_PATH/n2_ids_2';
-n2_ids           = LOAD '$TMP_PATH/n2_ids_2'      AS (user_id:long, seen:long);
+rmf                      $TMP_PATH/n2_ids_seen
+STORE n2_ids       INTO '$TMP_PATH/n2_ids_seen';
+n2_ids           = LOAD '$TMP_PATH/n2_ids_seen'      AS (user_id:long, seen:long);
 
 --
 -- Distribution of records:
