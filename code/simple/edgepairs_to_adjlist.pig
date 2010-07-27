@@ -12,13 +12,16 @@
 --
 -- Usage:
 --
---    pig -p A_REPLIES_B_FILE=a_replies_b.tsv edgepairs_to_adjlist.pig 
+--    cd /path/to/
+--    pig -x local -p DATA_DIR=/path/to/hadoop_book/data/sampled edgepairs_to_adjlist.pig
+--
+-- Note that the data dir path must be absolute
 --
 -- Copyright 2010, Flip Kromer for Infochimps, Inc
 -- Released under the Apache License
 --
 
-%default DATA_DIR      '/home/flip/ics/hadoop/hadoop_book/data/sampled'
+%default DATA_DIR      '/Users/flip/ics/hadoop/hadoop_book/data/sampled'
 
 --
 -- Edges file is tab-separated: source label in first column, destination label in second
@@ -60,8 +63,8 @@ replies_out_g = GROUP a_replies_b BY src;
 -- -- (jerry,{(Drake),(Elaine)})
 -- -- (kramer,{(Elaine),(Newman),(george),(jerry)})
 --
-replies_out = FOREACH replies_out_g { nbrs = DISTINCT a_replies_b.dest ; GENERATE group, nbrs, COUNT(a_replies_b) ; };
+replies_out = FOREACH replies_out_g { nbrs = DISTINCT a_replies_b.dest ; GENERATE group, nbrs ; };
 
 -- Save the output.
-rmf                        $DATA_DIR/replies_out.tsv
-STORE replies_out    INTO '$DATA_DIR/replies_out.tsv';
+rmf                        $DATA_DIR/replies_out
+STORE replies_out    INTO '$DATA_DIR/replies_out';

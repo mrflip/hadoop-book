@@ -14,12 +14,14 @@
 --
 --    pig -p A_REPLIES_B_FILE=a_replies_b.tsv edgepairs_to_indegree.pig 
 --
+-- Note that the data dir path must be absolute
+--
+--
 -- Copyright 2010, Flip Kromer for Infochimps, Inc
 -- Released under the Apache License
 --
 
-%default A_REPLIES_B_FILE  'a_replies_b.tsv'
-%default A_INDEGREE_FILE   'a_indegree.tsv'
+%default DATA_DIR      '/Users/flip/ics/hadoop/hadoop_book/data/sampled'
 
 --
 -- Edges file is tab-separated: source label in first column, destination label in second
@@ -39,7 +41,7 @@
 -- -- kramer	jerry
 -- -- kramer	Newman
 --
-Edges    = LOAD '$A_REPLIES_B_FILE' AS (src: chararray, dest:chararray);
+a_replies_b    = LOAD '$DATA_DIR/a_replies_b.tsv' AS (src: chararray, dest:chararray);
 
 --
 -- Find all edges incoming to each node by grouping on destination
@@ -50,10 +52,8 @@ Edges    = LOAD '$A_REPLIES_B_FILE' AS (src: chararray, dest:chararray);
 -- -- (george,{(Elaine,george),(kramer,george),(jerry,george)})
 -- -- (kramer,{(george,kramer),(jerry,kramer)})
 --
-InEdges = GROUP Edges BY dest;
-
-DUMP InEdges;
-
+replies_in  = GROUP a_replies_b BY dest; -- group on dest to get in-links
+        
 --
 -- Count the distinct incoming repliers (neighbor nodes) and the total incoming replies
 --
@@ -63,8 +63,16 @@ DUMP InEdges;
 -- -- george	3	3
 -- -- kramer	2	2
 --
-InDegree  = FOREACH InEdges { nbrs = DISTINCT Edges.src ; GENERATE group, COUNT(nbrs), COUNT(Edges) ; };
+replies_in_degree = FOREACH replies_in {
+  nbrs = DISTINCT a_replies_b.src;
+  GENERATE group, COUNT(nbrs), COUNT(a_replies_b);
+};
+-- DUMP replies_in_degree;
 
 -- Save the output.
-rmf                  $A_INDEGREE_FILE
-STORE InDegree INTO '$A_INDEGREE_FILE';
+rmf                           $DATA_DIR/replies_in_degree
+STORE replies_in_degree INTO '$DATA_DIR/replies_in_degree';
+
+-- Follow up with a
+--    cat replies_in_degree/part-r-00000 | sort -nk2 > replies_in_degree.tsv
+-- if you like
