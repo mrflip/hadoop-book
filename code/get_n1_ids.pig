@@ -70,19 +70,27 @@ tweet_1           = LOAD '$NBRHOOD_PATH/tweet_1'       	AS (rsrc:chararray, twid
 -- MapReduces: 1/0, 1/0, 4/1 in about a minute wall-clock time. 22k output records, 0.2 MB
 --
 
-id_fo_a    = FOREACH a_follows_b_1 GENERATE user_a_id   AS user_id; 
-id_fo_b    = FOREACH a_follows_b_1 GENERATE user_b_id   AS user_id; 
-id_tw      = FOREACH tweet_1       GENERATE uid         AS user_id; 
-id_tw_re   = FOREACH tweet_1       GENERATE in_re_uid   AS user_id; id_tw_re = FILTER id_tw_re BY (user_id IS NOT NULL);
-n1_ids_all = UNION id_fo_a, id_fo_b, id_tw, id_tw_re ;
-n1_ids     = DISTINCT n1_ids_all PARALLEL 1;
-rmf                     $NBRHOOD_PATH/n1_ids
-STORE n1_ids      INTO '$NBRHOOD_PATH/n1_ids';
-n1_ids          = LOAD '$NBRHOOD_PATH/n1_ids'           AS (user_id:long);
+-- id_fo_a        = FOREACH a_follows_b_1 GENERATE user_a_id   AS user_id; 
+-- id_fo_b        = FOREACH a_follows_b_1 GENERATE user_b_id   AS user_id; 
+-- id_tw          = FOREACH tweet_1       GENERATE uid         AS user_id; 
+-- id_tw_re       = FOREACH tweet_1       GENERATE in_re_uid   AS user_id; id_tw_re = FILTER id_tw_re BY (user_id IS NOT NULL);
+-- n1_ids_all     = UNION id_fo_a, id_fo_b, id_tw, id_tw_re ;
+-- n1_ids         = DISTINCT n1_ids_all PARALLEL 1;
+-- rmf                  $NBRHOOD_PATH/n1_ids
+-- STORE n1_ids     INTO '$NBRHOOD_PATH/n1_ids';
+n1_ids            = LOAD '$NBRHOOD_PATH/n1_ids'      AS (user_id:long);
+
+-- you can as well get the raw counts of times seen. The number isn't that meaningful, but it's nice to see that central actors come out on top.
+-- n1_ids_g       = GROUP n1_ids_all BY user_id PARALLEL 1;
+-- n1_ids_seen    = FOREACH n1_ids_g GENERATE group AS user_id, COUNT(n1_ids_all) AS seen;
+-- rmf                     $NBRHOOD_PATH/n1_ids_seen
+-- STORE n1_ids_seen INTO '$NBRHOOD_PATH/n1_ids_seen';
+-- n1_ids_seen    = LOAD  '$NBRHOOD_PATH/n1_ids_seen'      AS (user_id:long, seen:long);
+-- n1_ids         = FOREACH n1_ids_seen GENERATE user_id;
 
 -- hdp-mv   /data/sn/tw/projects/explorations/bigdata/n1_ids /tmp/n1_ids
--- hdp-catd /tmp/n1_ids | hdp-put - /data/sn/tw/projects/explorations/bigdata/n1_ids 
+-- hdp-catd /tmp/n1_ids | hdp-put - /data/sn/tw/projects/explorations/bigdata/n1_ids
 -- mkdir /mnt/tmp/bigdata
--- hdp-cat /data/sn/tw/projects/explorations/bigdata/n1_ids        > /mnt/tmp/bigdata/n1_ids.tsv
 -- hdp-cat /data/sn/tw/projects/explorations/bigdata/a_follows_b_1 > /mnt/tmp/bigdata/a_follows_b_1.tsv
 -- hdp-cat /data/sn/tw/projects/explorations/bigdata/tweet_1       > /mnt/tmp/bigdata/tweet_1.tsv
+-- hdp-cat /data/sn/tw/projects/explorations/bigdata/n1_ids        > /mnt/tmp/bigdata/n1_ids.tsv
