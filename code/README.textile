@@ -1,0 +1,90 @@
+
+
+This is divided into two parts.
+
+The code in the @simplified/@ directory runs against the data in @data/simplified@. It's the origin of the actual code from the book, and is optimized for clarity.
+
+h3. Getting a raw sample for yourself.
+
+I've included
+
+It's very early code, so you may wish to do a git pull or better yet install from the gem.
+
+h
+
+h2. Actual Code
+
+The code in the @actual/@ directory represents the real code I ran against the infochimps' internal database. It uses our internal representation, with all its historical peculiarities. I've included a sample
+
+Here is how I extracted a sub-universe
+
+h3. Community (n1)
+
+Extract @n1_users@ -- every user who
+** mentioned any of the following terms in the text of a tweet.
+  <code>/\b(hadoop|infochimps?|cloudera|map\W*reduce|network\W*graph|big\W*data)\b/i<code>.
+** Replied to or from @infochimps, @hadoop, or @cloudera.
+** Follows @infochimps, @hadoop, or @cloudera.
+
+In contrast to the book (where the n0 seed was the single user @hadoop, and we used only the reply graph), 
+
+h4. Corpus Extraction
+
+* This is drawn from our collection, which represents a roughly 15% sample of tweets.
+* I've done this using a pig script using the MATCHES operator; in practice you might instead apply an inverted index.
+* Emit @tweet.tsv@: contains the tweet id, user_id, reply_user_id, reply_status_id, and matched string (using the piggybank @RegexExtract@ UDF).
+
+h4. Extract users
+
+Identify @n1_users@ as the distinct union of the @user_id@s and @reply_user_id@s in @tweet.tsv@
+
+
+h4. Subuniverse Identification
+
+* For every account in @n1_users@, joined on the mention graph and the 
+
+** @n1_fo_o_all@ -- edge pairs
+** @n1_fo_i_all@ -- edge pairs 
+** @n1_at_o_all@ -- edge pairs
+** @n1_at_i_all@ -- edge pairs
+
+Now, I'd like to filter the latter somewhat, while leaving plenty enough to play with.
+So we'll keep you if you
+* are in n1_users (that is, you've demonstrated some interest, however slight)
+* n1_xx_x is everyone who has any relationship whatsoever to the community, in or out.
+* From this, we extract only those who are followed by, atsigned by, or atsign 5 people in n1. (Following people in n1 carries no weight.)
+* Doing that is straightforward: take everyone on the right-hand side of n1_fo_o_all, n1_at_i_all, and n1_at_o_all, do a GROUP, COUNT and FILTER.
+* Then do a UNION / DISTINCT with n1_users to get n1_users
+
+One way to picture this:
+* color in a set of nodes on the graph,
+* and collect them to lie on a nice little ball in space.
+* Now ask for every edge that connects to any one of those nodes:
+* You'll have a lot of edges within the ball (we'll come back for those later),
+* and a bunch of 'hair': edges off of the ball to other nodes in space.
+* Now give the ball a haircut, pruning everything with only tenuous links.
+* This immerses the community (n1_users) within enough of a larger context (@n2_users@) to treat it as a complete subuniverse.
+
+h4. Subuniverse Extraction
+
+For each of the subuniverse nodes (@n2_users@), extract
+* @n1_users@:       User id's only for people who demonstrated interest	user_id
+* @twitter_users@:  Basic metadata for all of n2_users 			user_id, followers_count, friends_count, ....
+* @a_follows_b@:    user_a_id, user_b_id,
+* @a_atsigns_b@:    user_a_id, user_b_id, tweet_id
+* @wordbag@:        user_id, { (word, rel_freq, freq_ppm), (word, rel_freq, freq_ppm), ... }
+* @agg_tweet@:      user_id, [times mentioned: hadoop, infochimps, ...], fo_ics, fo_hdp, fo_cld, at_ics, at_hdp, at_cld
+
+h3. Scripts
+
+h4. Count in-degree
+
+h4. Assemble adjacency list
+
+h4. Find Symmetric Links
+
+h4. Find N2_edges
+
+h4. Count Triangles
+
+

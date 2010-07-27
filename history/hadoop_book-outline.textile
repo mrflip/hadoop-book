@@ -1,0 +1,309 @@
+h1. Graph Analysis Chimpanzee Style
+
+(Using Pig and Wukong to Explore Billion-edge Network Graphs)
+
+h2. Basics
+
+Networks at massive scale are fascinating. It's a very general model: you have things (that we'll call nodes); they're related (edges); and we can attach numbers or attributes to those things or relationships (node or edge metadata).
+
+For example, here are a few datasets that come up in a search for 'network' on infochimps.org:
+
+* A social network, such as Twitter or Facebook. People are somewhat impersonally modeled as nodes, and relationships (@mrflip is friends with @tom_e_white) or actions (@infochimps mentioned @hadoop) as edges. The number of messages a user has sent and the bag of words from all those messages are each pieces of node metadata.
+* A linked document collection such as Wikipedia or the entire web. Each page is a node (carrying its title, view count and categories as node metadata). Each hyperlink is an edge, and the frequency at which people click from one page to the next is edge metadata.
+* The connections of neurons (nodes) and synapses (edges) in the C. Elegans roundworm.
+* A Highway map, with exits as nodes, and highway segments as edges. The Open Street Map project's dataset has global coverage of placenames (node metadata), street number ranges (edge metadata), and more.
+
+Or more esoteric graphs that fall out when you take an interesting problem and shake it just right:
+* Take a few million Twitter messages and, every time a non-keyboard character is used, emit an edge for every other such character in the message. Simply by saying 'sometimes, when humans use 最, they often use 近' you can recreate a map of human languages (found at right)
+
+FOOTNOTES:
+
+* See attached for two twitter graphics.
+* Neuronal network: Dataset: http://www.wormatlas.org/neuronalwiring.html  http://infochimps.org/datasets/neuronal-wiring-network-of-the-caenorhabditis-elegans-roundworm - open-licensed image from http://commons.wikimedia.org/wiki/File:C.elegans-brain-network.jpg
+* Open Street Map: http://www.openstreetmap.org/ - http://infochimps.org/datasets/open-street-map -
+* ... but if you *do* want an image of the Swindon roundabout, here's one that's plausible as a network graph http://commons.wikimedia.org/wiki/File:Swindon-Magic-Roundabout.svg
+* Fancy character entities: [&#26368; -- &#36817; ]
+
+What's amazing about these organic network graphs is that given enough data, a growing collection of powerful tools are able to *generically* use this network structure to expose insight. For example, we've used variants of the same algorithm [footnote1.1] to do each of:
+* Rank the most important pages in the wikipedia linked-document collection. Google uses a vastly more refined version this approach to identify top search hits.
+* Identify celebrities and experts in the Twitter social graph. Users who have many more followers than their 'trstrank' would imply are often spammers.
+* Predict a school's impact on student education using millions of anonymized exam scores gathered over five years.
+
+At infochimps, we've got a whole bag of tricks ready to apply to any interesting network graph that comes into the collection. We chiefly use Pig (described in chapter XXXX) and Wukong, a toolkit we've developed for Hadoop streaming in the Ruby programming language. They let use write simple scripts like the ones below -- almost all of which fit on a single printed page -- that capably process networks of 100 million nodes and 2 billion edges.
+
+[Footnote sec1.1 All are steady-state network flow problems. A huge number of random websurfers wandering through the linked-document collection will visit the most interesting pages most often. If you model social network interactions as exchanges of social capital, the steady-state flow of that capital will highlight the most interesting users. The year-to-year progress of students to higher or lower scores implies what each school's effect on a generic class would be]
+
+h2. Measuring Community
+
+The most interesting network in our collection is a massive crawl of the Twitter social graph. With more than 50 million nodes and 2 billion edges, it is a fantastic instrument for understanding what people talk about and how they relate to each other. Here are straightforward ways to characterize a twitter user's community:
+
+* Who are the people they converse with (the @reply graph)?
+* Do the people they engage with reciprocate that attention (symmetric links)?
+* Among the user's community, how many engage with each other (clustering coefficient)?
+
+Here's an exploration of these questions within the Twitter subuniverse of "People who talk about Infochimps or Hadoop". [FOOTNOTE]
+
+[FOOTNOTE] In keeping with the ego-centered ethos of social networks, chosen without apology.
+
+h2. Everybody's Talkin' At Me: The Twitter Reply Graph
+
+Twitter lets you reply to another user's message and thus engage in conversation. Since it's an expressly public activity, a reply is a strong /social token/: it shows interest in what the other is saying, and demonstrates that interest is worth re-broadcasting.
+
+The first step in our processing is done in Wukong, a ruby-language library for Hadoop. It lets us write small, agile programs capable of handling many-terabyte data streams. Here is a snippet from the class that represents a twitter message:
+
+<pre>
+    class Tweet < Struct.new(:tweet_id, :screen_name, :created_at, :reply_tweet_id, :reply_screen_name, :text)
+      def initialize(raw_tweet)
+        # ... gory details of parsing raw tweet omitted
+      end
+      
+      # Tweet is a reply if there's something in the reply_tweet_id slot
+      def is_reply?
+        not reply_tweet_id.blank?
+      true
+    end
+</pre>
+
+Anyone can pull gigabytes of data per day from Twitter's streaming api: follow the instructions at http://dev.twitter.com/doc/get/statuses/sample or use a tool like http://github.com/hayesdavis/flamingo 
+    
+Twitter messages typically arrive in raw JSON format[FOOTNOTE]. Here are a few tweets:
+
+<pre>
+{"id":3239897342,"screen_name":"tom_e_white","text":"Just finished the final draft for Hadoop: the Definitive Guide!","reply_screen_name":null,"reply_tweet_id":null,...}
+{"id":3239873453,"screen_name":"mrflip","text":"@tom_e_white Can't wait to get a copy!","reply_screen_name":"tom_e_white","reply_tweet_id":3239897342,...}
+{"id":3235751418,"screen_name":"drsm79","text":"Lots of ideas buzzing round my head but not quite crystalising, so can't sleep. Want to read Tom's hadoop book, too - thanks @tom_e_white!!","reply_screen_name":null,"reply_tweet_id":null,...}
+{"id":16434069252,"screen_name":"wattsteve","text":"@josephkelly great job on the #InfoChimps API. Next time I come by remind me to tell you about the time a baboon broke into our house.","reply_screen_name":"josephkelly",...}
+{"id":7809927173,"screen_name":"mrflip","text":"@mza Re: http://bit.ly/atbroxmr Have you seen @James_Rubino's http://bit.ly/clusterfork ? Lots of good hadoop refs there too","reply_screen_name":"@mza",...}
+{"id":4491069515,"screen_name":"nealrichter","text":"@tlipcon divide lots of data into little parts. Magic software gnomes fix up the parts, elves then assemble those into whole things #hadoop","reply_screen_name":"tlipcon",...}
+</pre>
+
+Twitter populates the {reply_screen_name}, {reply_tweet_id} and such fields in the JSON record so users can follow the conversation (as you can see, they're otherwise {null}). Where user A replies to user B, let's emit A and B separated by a tab:
+
+<pre>
+    class ReplyGraphMapper < LineStreamer
+      def process(raw_tweet)
+        tweet = Tweet.new(raw_tweet)
+        if tweet.is_reply?
+          emit [tweet.screen_name, tweet.reply_screen_name]
+        end
+      end
+    end
+</pre>
+
+The mapper derives from {LineStreamer}, a wukong class that calls its {process} method on each line as a single record. It handles all the routing; we only have to define that {process} method. In this case, we use the raw JSON record to create a tweet object. When that tweet is part of a conversation, we emit the respective user id's as an edge. Here's what the raw output will look like:
+
+<pre>
+$ reply_graph_mapper --run raw_tweets.json a_replies_b.tsv
+mrflip          tom_e_white
+wattsteve       josephkelly
+mrflip          mza
+nealrichter     tlipcon
+</pre>
+
+[FOOTNOTE] In practice, we of course use numeric IDs and not screen names -- but it's easier to follow along with screen names. 
+In order to keep the graph-theory discussion general, I'm going to play loose with some details and leave out various janitorial details of loading, running, etc. [FOOTNOTE] You may find full working source code on the book's website [URL].
+
+You should read this as "a_replies_b", and interpret it as a directed "out" edge: @wattsteve conveys social capital to @josephkelly.
+
+h3. Edge Pairs
+
+This is the /edge pairs/ representation of a network. It's simple, and it gives an equal jumping-off point for in- or out- edges, but there's some duplication of data. You can tell the same story from the node's point of view (and save some disk space) by rolling up on the source node. In Pig, this is a simple group [SEE CHAPTER ON PIG]. Load the file:
+
+<pre>
+a_replies_b = LOAD 'a_replies_b' AS (src: chararray, dest:chararray);
+</pre>
+
+Then find all edges out from each node by grouping on source:
+
+<pre>
+replies_out = GROUP a_replies_b BY source;
+DUMP replies_out
+
+(CMastication,{(esammer,CMastication),(peteskomoroch,CMastication),(peteskomoroch,CMastication),(peteskomoroch,CMastication),(esammer,CMastication),(esammer,CMastication),(ChrisDiehl,CMastication),(esammer,CMastication),(peteskomoroch,CMastication),(esammer,CMastication),(peteskomoroch,CMastication),(peteskomoroch,CMastication),(peteskomoroch,CMastication),(esammer,CMastication),(bradfordcross,CMastication),(peteskomoroch,CMastication)})
+(ChrisDiehl,{(DataJunkie,ChrisDiehl),(DataJunkie,ChrisDiehl),(peteskomoroch,ChrisDiehl)})
+(DataJunkie,{(CMastication,DataJunkie),(CMastication,DataJunkie),(nealrichter,DataJunkie),(peteskomoroch,DataJunkie),(mat_kelcey,DataJunkie),(CMastication,DataJunkie),(communicating,DataJunkie),(ChrisDiehl,DataJunkie),(bradfordcross,DataJunkie),(nealrichter,DataJunkie),(mat_kelcey,DataJunkie),(mat_kelcey,DataJunkie)})
+(LusciousPear,{(bradfordcross,LusciousPear),(metcalfc,LusciousPear),(mikeolson,LusciousPear),(metcalfc,LusciousPear),(metcalfc,LusciousPear),(tlipcon,LusciousPear),(kevinweil,LusciousPear),(bradfordcross,LusciousPear),(bradfordcross,LusciousPear),(DataJunkie,LusciousPear),(esammer,LusciousPear)})
+(bradfordcross,{(LusciousPear,bradfordcross),(CMastication,bradfordcross),(mrflip,bradfordcross),(LusciousPear,bradfordcross),(peteskomoroch,bradfordcross),(ogrisel,bradfordcross),(LusciousPear,bradfordcross),(DataJunkie,bradfordcross),(ogrisel,bradfordcross)})
+(communicating,{(nealrichter,communicating),(DataJunkie,communicating),(ogrisel,communicating),(ogrisel,communicating)})
+(cutting,{(tom_e_white,cutting)})
+(esammer,{(CMastication,esammer),(CMastication,esammer),(mikeolson,esammer),(mikeolson,esammer),(jeromatron,esammer)})
+(jeromatron,{(mrflip,jeromatron),(mrflip,jeromatron)})
+(josephkelly,{(wattsteve,josephkelly)})
+(kevinweil,{(tlipcon,kevinweil),(DataJunkie,kevinweil),(mikeolson,kevinweil),(LusciousPear,kevinweil),(tlipcon,kevinweil),(tlipcon,kevinweil),(DataJunkie,kevinweil),(mrflip,kevinweil),(LusciousPear,kevinweil)})
+(metcalfc,{(nealrichter,metcalfc),(nealrichter,metcalfc),(nealrichter,metcalfc)})
+(mikeolson,{(LusciousPear,mikeolson),(kevinweil,mikeolson),(LusciousPear,mikeolson),(tlipcon,mikeolson)})
+(mndoci,{(mrflip,mndoci),(peteskomoroch,mndoci),(LusciousPear,mndoci),(mrflip,mndoci)})
+(mrflip,{(LusciousPear,mrflip),(mndoci,mrflip),(mndoci,mrflip),(ogrisel,mrflip),(esammer,mrflip),(ogrisel,mrflip),(esammer,mrflip),(esammer,mrflip),(wattsteve,mrflip)})
+(mza,{(mrflip,mza)})
+(nealrichter,{(metcalfc,nealrichter),(DataJunkie,nealrichter),(peteskomoroch,nealrichter),(metcalfc,nealrichter)})
+(ogrisel,{(mrflip,ogrisel),(bradfordcross,ogrisel),(mrflip,ogrisel)})
+(peteskomoroch,{(CMastication,peteskomoroch),(esammer,peteskomoroch),(DataJunkie,peteskomoroch),(CMastication,peteskomoroch),(mndoci,peteskomoroch),(CMastication,peteskomoroch),(nealrichter,peteskomoroch),(nealrichter,peteskomoroch),(bradfordcross,peteskomoroch),(ChrisDiehl,peteskomoroch),(mrflip,peteskomoroch),(mrflip,peteskomoroch),(LusciousPear,peteskomoroch),(bradfordcross,peteskomoroch),(ChrisDiehl,peteskomoroch),(nealrichter,peteskomoroch),(CMastication,peteskomoroch),(mndoci,peteskomoroch)})
+(tlipcon,{(mrflip,tlipcon),(LusciousPear,tlipcon),(LusciousPear,tlipcon),(nealrichter,tlipcon),(LusciousPear,tlipcon),(nealrichter,tlipcon),(mrflip,tlipcon),(kevinweil,tlipcon)})
+(tom_e_white,{(mrflip,tom_e_white),(lenbust,tom_e_white)})
+</pre>
+
+h3. Degree
+
+A simple, useful measure of influence is the number of replies a user receives. In graph terms this is the /degree/ (specifically, the /in-degree/ since this is a directed graph). 
+
+Pig's /nested foreach/ syntax lets us count the distinct incoming repliers (neighbor nodes) and the total incoming replies in one pass:
+
+<pre>
+a_replies_b = LOAD 'a_replies_b' AS (src: chararray, dest:chararray);
+replies_in = GROUP a_replies_b BY dest; -- group on dest to get in-links
+DUMP replies_in
+replies_in_degree  = FOREACH replies_in { nbrs = DISTINCT a_replies_b.src ; GENERATE group, COUNT(nbrs), COUNT(a_replies_b); };
+DUMP replies_in_degree
+
+(mza,1L,1L)
+(mndoci,3L,4L)
+(mrflip,5L,9L)
+(cutting,1L,1L)
+(esammer,3L,5L)
+(ogrisel,2L,3L)
+(tlipcon,4L,8L)
+(metcalfc,1L,3L)
+(kevinweil,5L,9L)
+(mikeolson,3L,4L)
+(ChrisDiehl,2L,3L)
+(DataJunkie,7L,12L)
+(jeromatron,1L,2L)
+(josephkelly,1L,1L)
+(nealrichter,3L,4L)
+(tom_e_white,2L,2L)
+(CMastication,4L,16L)
+(LusciousPear,7L,11L)
+(bradfordcross,6L,9L)
+(communicating,3L,4L)
+(peteskomoroch,9L,18L)
+</pre>
+
+In Twitter, the indegree can vary wildly. Most nodes have very few edges, but a few celebrities -- @THE_REAL_SHAQ (basketball star Shaquille O'Neill) and @sockington (a fictional cat) have millions. By contrast, almost every intersection on a road map is 4-way [2]. This wild variation in degree  (/skewness/) on the social graph has important ramifications for how you process such graphs -- more later.
+
+[2] Due to a pesky Hadoop implemenataion detail, the small size of the edge pair records may inefficiently force the mapper to 'spill' early. If the jobtracker dashboard shows 'spilled records' greatly exceeding 'map output records', see if bumping up the {io.sort.record.percent} jobconf helps performance:
+
+    PIG_OPTS="-Dio.sort.record.percent=0.25 -Dio.sort.mb=350" pig my_file.pig
+
+[3] The largest outlier that comes to mind is the famous "Magic Roundabout" in Swindon, England, with degree 10 http://en.wikipedia.org/wiki/Magic_Roundabout_%28Swindon%29
+
+h2. Symmetric Links
+
+On Twitter, millions of people have given @THE_REAL_SHAQ a shout-out; understandably, he has not reciprocated with millions of replies. As the graph shows, I frequently converse with @mndoci [FOOTNOTE], making ours a /symmetric link/. This accurately reflects the fact that I have more in common with @mndoci than with @THE_REAL_SHAQ. 
+
+[FOOTNOTE] Deepak Singh, open data advocate and bizdev manager of the Amazon AWS cloud
+
+One line of reasoning says to take the edges in {A Replies B} that are also in {A ReplyFrom B}. We can do that set intersection with an inner self-join:
+
+<pre>
+    -- out links
+    a_replies_b  = LOAD 'a_replies_b.tsv' AS (src:chararray, dest:chararray);
+    -- in links: reverse each edge
+    b_replies_a = FOREACH a_replies_b GENERATE dest AS user_a, src AS user_b;
+    -- symmetric edges are in both sets
+    a_symmetric_b_j = JOIN a_replies_b BY (src, dest), b_replies_a BY (user_a, user_b) ;
+</pre>
+
+However, this sends two copies of the edge-pairs list to the reduce phase, doubling the memory required. We can do better by noticing that from a node's point of view, a symmetric link is equivalent to one out- and one in-edge. Make the graph undirected by putting the node with lowest sort order in the first slot -- but /preserve the direction as a piece of edge metadata/.
+
+<pre>
+    a_replies_b    = LOAD 'a_replies_b.tsv' AS (src: chararray, dest:chararray);
+    a_b_relations  = FOREACH a_replies_b GENERATE
+      ((src <= dest) ? src  : dest) AS user_a,
+      ((src <= dest) ? dest : src)  AS user_b,
+      ((src <= dest) ? 1 : 0)       AS a_re_b:int,
+      ((src <= dest) ? 0 : 1)       AS b_re_a:int;
+DUMP a_b_relations
+(mrflip,tom_e_white,1,0)
+(josephkelly,wattsteve,0,1)
+(mrflip,mza,1,0)
+(nealrichter,tlipcon,0,1)
+</pre>
+
+Now gather all edges for each node pair together, and check for symmetry:
+
+<pre>
+    a_b_relations_g   = GROUP a_b_relations BY (user_a, user_b);
+    a_symmetric_b_all = FOREACH a_b_relations_g GENERATE 
+      group.user_a AS user_a, 
+      group.user_b AS user_b,
+      ( ((SUM(a_b_relations.a_re_b) > 0) AND (SUM(a_b_relations.b_re_a) > 0)) ? 1 : 0) AS is_symmetric:int;
+DUMP a_symmetric_b
+
+(mrflip,tom_e_white,1)
+(mrflip,mza,0)
+(josephkelly,wattsteve,0)
+(nealrichter,tlipcon,1)
+...
+
+    a_symmetric_b = FILTER a_symmetric_b_all BY (is_symmetric == 1);
+    STORE a_symmetric_b INTO 'a_symmetric_b.tsv';
+
+(mrflip,tom_e_white,1)
+(nealrichter,tlipcon,1)
+</pre>
+    
+h2. Community extraction
+
+So far we've generated a node measure (in-degree) and an edge measure (symmetric link identification). Let's move out one step and look at a neighborhood measure: how many of a given person's friends are friends with each other? Along the way, we'll produce the edge set for a visualization like the one above.
+
+h3. Get Neighbors
+
+Choose a seed node. First round up the seed's neighbors:
+
+<pre>
+    a_replies_b    = LOAD 'a_replies_b.tsv' AS (src: chararray, dest:chararray);
+     -- Extract edges that originate or terminate on the seed
+    n0_edges = FILTER a_replies_b BY (src == 'hadoop') OR (dest == 'hadoop');
+    -- Choose the node in each pair that *isn't* our seed:
+    n1_nodes_all = FOREACH n0_edges GENERATE ((src == 'hadoop') ? dest : src) AS screen_name;
+    n1_nodes    = DISTINCT n1_nodes_all;
+    DUMP n1_nodes
+</pre>
+
+Now intersect the set of neighbors with the set of starting nodes to find all edges originating in n1_nodes:
+
+<pre>
+    n1_edges_left_j    = JOIN a_replies_b BY src, n1_nodes BY screen_name USING 'replicated';
+    n1_edges_left      = FOREACH n1_edges_left_j GENERATE src, dest;
+</pre>
+
+[FOOTNOTE] Our copy of the graph has more than 1 billion edges, far too large to fit in memory. On the other hand, the neighbor count for a single user rarely exceeds a couple million, which fits easily in memory. Including {USING 'replicated'} in the JOIN command instructs Pig to do a /map-side join/ (also called a /fragment replicate join/). Pig holds the {n0_nodes} relation in memory as a lookup table, and streams the full edge list past. Whenever the join condition is met -- {user_a} is in the {n0_nodes} lookup table -- it produces output. No reduce step makes for an enormous speedup!
+
+Finally, take all the edges out from {} and retain only those ending in to {Nbrs}. 
+
+<pre>
+    -- Among those edges, find those that terminate in n1_nodes as well
+    n1_edges_j = JOIN n1_edges_left BY dest, n1_nodes BY screen_name USING 'replicated';
+    n1_edges    = FOREACH n1_edges_j GENERATE src, dest;
+    DUMP n1_edges
+
+(mrflip,tom_e_white)
+(mrflip,mza)
+(wattsteve,josephkelly)
+(nealrichter,tlipcon)
+(bradfordcross,lusciouspear)
+(mrflip,jeromatron)
+(mndoci,mrflip)
+(nealrichter,datajunkie)
+</pre>
+    
+h4. Community metrics and the 1 billion x 1 billion problem
+
+The diagram on [TODO: diagram reference] displays the community extracted using @hadoop, @cloudera and @infochimps as seeds. As you can see, the big data community is very interconnected. The link neighborhood of a celebrity such as @THE_REAL_SHAQ is far more sparse.
+
+We can characterize this using the /clustering coefficient/: the number of n1_edges to the maximum number of possible n1_edges. It ranges from zero (no neighbor links to any other neighbor) to one (every neighbor links to every other neighbor). A high clustering coefficient indicates a cohesive community. A low clustering coefficient could indicate widely-dispersed interest (as it does with @THE_REAL_SHAQ), or it could indicate the kind of inorganic community that a spam account would engender.
+
+h4. The 1 billion x 1 billion problem
+
+Don't try to recklessly generalize the calculation above to the full dataset. Remember the wide variation in node degree on the social graph discussed above? This skewness leads to an explosion of data -- pop star @britneyspears (5.2M followers, 420k following as of July 2010) or @WholeFoods (1.7M followers, 600k following) will each generate trillions of entries. What's worse, almost all of these will be thrown away: as just argued, the clustering coefficient for celebrities is very low! There is a very elegant way to do this on the full graph[FOOTNOTE], but If you're willing to assume that @britneyspears isn't /reallly/ friends with 420,000 people, you can still do a reasonable job. Just weight each edge (by number of replies, whether it's symmetric, etc) and set limits on the number of links from any node.
+
+[FOOTNOTE] http://www.slideshare.net/ydn/3-xxl-graphalgohadoopsummit2010 One of many fine tricks by Jake Hofman (@jakehofman) and Sergei Vassilvitskii (@vsergei) of Yahoo Research. 
+
+===========================================================================
+
+[There's no room to reasonably explain the trick, but for your curiosity:
+* make the graph undirected as we did above, moving the link direction to edge metadata...
+* but instead of sorting the edge pairs to have lowest id in slot A, put the node with lower degree first.
+* This makes a minimum-skew adjacency list.
+* Since the node degree follows a long-tail distribution, the adjacency list is the lesser of the number of edges (when that is small) or the log of them number of edges (when it is large)
+* You still have a big-ass job, but a computable one.
