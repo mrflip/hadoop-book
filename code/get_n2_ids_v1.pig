@@ -11,9 +11,8 @@ n1_ids                   = LOAD '$NBRHOOD_PATH/n1_ids'      AS (user_id:long);
 --
 -- Find all nodes in the in or out 2-neighborhood (at radius 1 from our community, radius 2 from our seed)
 --
--- In this first version I didn't think very hard and put the foreach after the join.
---
--- 
+-- Run all the way through (with the intermediate STOREs commented out)
+-- 30 m1.largs - 16mins - input 49GB / 850M recs -- output 17MB / 1.56M records
 
 --
 -- Atsigns from n1_ids
