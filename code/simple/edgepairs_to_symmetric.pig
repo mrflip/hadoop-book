@@ -1,91 +1,102 @@
 --
--- edgepairs_to_indegree.pig
+-- edgepairs_to_symmetric.pig
 --
 -- This takes an edge-pairs representation of a graph
 --
 --    src       dest
 --
--- and finds the in-degree (number of incoming edges)
--- and neighbor count (number of distinct nodes)
+-- and finds the links that are symmetric
 --
---    node      in_degree       neighbor_count
+--    user_a    user_b    a_re_b    b_re_a      a_symm_b
 --
 -- Usage:
 --
---    pig -p A_REPLIES_B_FILE=a_replies_b.tsv edgepairs_to_indegree.pig 
+--    pig -p A_REPLIES_B_FILE=a_replies_b.tsv edgepairs_to_symmetric.pig
+--
+-- Note that the data dir path must be absolute
+--
 --
 -- Copyright 2010, Flip Kromer for Infochimps, Inc
 -- Released under the Apache License
 --
 
-%default A_REPLIES_B_FILE 'a_replies_b.tsv'
-%default SYMM_EDGES_FILE  'symm_edges.tsv'
+%default DATA_DIR      '/Users/flip/ics/hadoop/hadoop_book/data/sampled'
 
 --
 -- Edges file is tab-separated: source label in first column, destination label in second
 --
--- -- Elaine	george
--- -- Elaine	jerry
--- -- Elaine	jerry
--- -- Newman	Elaine
--- -- george	jerry
--- -- george	kramer
--- -- jerry	Elaine
--- -- jerry	george
--- -- jerry	kramer
--- -- kramer	Elaine
--- -- kramer	george
--- -- kramer	jerry
--- -- kramer	jerry
--- -- kramer	Newman
+-- -- mrflip     	tom_e_white
+-- -- wattsteve  	josephkelly
+-- -- mrflip     	mza        
+-- -- nealrichter	tlipcon    
+-- -- rabble     	rashmi     
+-- -- kellan     	rcrowley   
+-- -- blaine     	kellan     
+-- -- jot        	MarkABaker 
+-- -- nitin      	shashivelur
+-- -- davemcclure	hackingdata
 --
-Edges    = LOAD '$A_REPLIES_B_FILE' AS (src: chararray, dest:chararray);
+a_replies_b    = LOAD '$DATA_DIR/a_replies_b.tsv' AS (src: chararray, dest:chararray);
 
 --
--- Don't do this:
+-- We want to make the graph undirected -- but cleverly!!!
 --
--- Edges_1 = LOAD '/Users/flip/ics/me/blog_posts/hadoop_book/foo.tsv' AS (src: chararray, dest:chararray);
--- Edges_2 = LOAD '/Users/flip/ics/me/blog_posts/hadoop_book/foo.tsv' AS (src: chararray, dest:chararray);
--- SymmEdges_0 = JOIN Edges_1 BY (src, dest), Edges_2 BY (dest, src) ;
--- SymmEdges_1 = FOREACH SymmEdges_0 GENERATE Edges_1::src, Edges_1::dest;
--- SymmEdges_2 = DISTINCT SymmEdges_1;
+-- * To make the edges unambiguous (so that a => b and b => a both map to the
+--   same undirected pair), we just arbitrarily put the one with lowest id first
 --
+-- -- (mrflip,tom_e_white,1,0)
+-- -- (josephkelly,wattsteve,0,1)
+-- -- (mrflip,mza,1,0)
+-- -- (nealrichter,tlipcon,1,0)
+--
+a_b_rels = FOREACH a_replies_b GENERATE
+  ((src <= dest) ? src  : dest) AS user_a,
+  ((src <= dest) ? dest : src)  AS user_b,
+  ((src <= dest) ? 1 : 0)       AS a_re_b:int,
+  ((src <= dest) ? 0 : 1)       AS b_re_a:int;
+-- DUMP a_b_rels
+-- pig -x local -p DATA_DIR=/Users/flip/ics/hadoop/hadoop_book/data/sampled ~/ics/hadoop/hadoop_book/code/simple/edgepairs_to_symmetric.pig > data/output/replies_undir_1-dump.txt
 
--- do this:
+--
+-- Now gather each undirected user pair together
+-- and count up the strength of their relationship in each direction:
+-- * how many replies a => b
+-- * how many replies b => a
+-- * boolean 1 / 0 for being symmetric (at least one reply in each direction)
+-- 
+-- -- (mrflip,tom_e_white,1,1,1)
+-- -- (josephkelly,wattsteve,0,2,0)
+-- -- (mrflip,mza,2,0,0)
+-- -- (nealrichter,tlipcon,2,0,0)
 
--- UndirectedEdges = FOREACH Edges GENERATE
---   ((src <= dest) ? src  : dest) AS user_a,
---   ((src <= dest) ? dest : src)  AS user_b,
---   ((src <= dest) ? 1 : 0)       AS a_replies_b:int,
---   ((src <= dest) ? 0 : 1)       AS b_replies_a:int;
--- UserEdges_0 = GROUP UndirectedEdges BY (user_a, user_b);
--- UserEdges   = FOREACH UserEdges_0 { 
---   a_replies_b_count = (int)SUM(UndirectedEdges.a_replies_b) ; 
---   b_replies_a_count = (int)SUM(UndirectedEdges.b_replies_a) ; 
---   is_symmetric = (((a_replies_b_count > 0) AND (b_replies_a_count > 0)) ? 1 : 0);
---   GENERATE group.user_a AS user_a, group.user_b AS user_b,
---     a_replies_b_count AS a_replies_b_count:int, 
---     b_replies_a_count AS b_replies_a_count:int, 
---     is_symmetric AS is_symmetric:int; 
+a_b_rels_g   = GROUP a_b_rels BY (user_a, user_b);
+-- DUMP a_b_rels_g;
+
+--
+-- -- -- You'd like to say
+--
+-- a_symm_b_all  = FOREACH a_b_rels_g {
+--   n_a_re_b    = SUM(a_b_rels.a_re_b);
+--   n_b_re_a    = SUM(a_b_rels.b_re_a);
+--   is_symm     = (((n_a_re_b >= 1L) AND (n_b_re_a >= 1L)) ? 1 : 0);
+--   GENERATE group.user_a AS user_a, group.user_b AS user_b, n_a_re_b, n_b_re_a, is_symm;
 -- };
--- SymmEdges = FILTER UserEdges BY (is_symmetric == 1);
+--
+-- -- but my version of pig is giving wrong results. wtf.
+-- -- This works though:
+--
+a_symm_b_all  = FOREACH a_b_rels_g {
+  n_a_re_b    = SUM(a_b_rels.a_re_b);
+  n_b_re_a    = SUM(a_b_rels.b_re_a);
+  a_re_b_bool = (n_a_re_b >= 1L ? 1 : 0);
+  b_re_a_bool = (n_b_re_a >= 1L ? 1 : 0);
+  is_symm     = ((a_re_b_bool + b_re_a_bool == 2) ? 1 : 0);
+  GENERATE group.user_a AS user_a, group.user_b AS user_b, n_a_re_b AS n_a_re_b, n_b_re_a AS n_b_re_a, is_symm AS is_symm;
+};
+DUMP a_symm_b_all
 
-    UndirectedEdges = FOREACH Edges GENERATE
-      ((src <= dest) ? src  : dest) AS user_a,
-      ((src <= dest) ? dest : src)  AS user_b,
-      ((src <= dest) ? 1 : 0)       AS a_replies_b:int,
-      ((src <= dest) ? 0 : 1)       AS b_replies_a:int;
-    UserEdges_0 = GROUP UndirectedEdges BY (user_a, user_b);
-    UserEdges   = FOREACH UserEdges_0 GENERATE 
-      group.user_a AS user_a, 
-      group.user_b AS user_b,
-      ( ((SUM(UndirectedEdges.a_replies_b) > 0) AND (SUM(UndirectedEdges.b_replies_a) > 0)) ? 1 : 0) AS is_symmetric:int; 
+a_symm_b = FILTER a_symm_b_all BY (is_symm == 1);
+-- DUMP a_symm_b
 
-    DUMP UserEdges;
-
-    SymmEdges = FILTER UserEdges BY (is_symmetric == 1);
-
-
--- Save the output.
-rmf                   $SYMM_EDGES_FILE
-STORE SymmEdges INTO '$SYMM_EDGES_FILE';
+-- rmf                  $DATA_DIR/a_symm_b         
+-- STORE a_symm_b INTO '$DATA_DIR/a_symm_b';

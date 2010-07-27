@@ -67,11 +67,12 @@ replies_in_degree = FOREACH replies_in {
   nbrs = DISTINCT a_replies_b.src;
   GENERATE group, COUNT(nbrs), COUNT(a_replies_b);
 };
--- DUMP replies_in_degree;
+DUMP replies_in_degree;
+-- pig -x local -p DATA_DIR=/Users/flip/ics/hadoop/hadoop_book/data/sampled ~/ics/hadoop/hadoop_book/code/simple/edgepairs_to_indegree.pig  | sort -rnk2 -t',' > data/output/replies_in_degree-dump.txt
 
 -- Save the output.
-rmf                           $DATA_DIR/replies_in_degree
-STORE replies_in_degree INTO '$DATA_DIR/replies_in_degree';
+-- rmf                           $DATA_DIR/replies_in_degree
+-- STORE replies_in_degree INTO '$DATA_DIR/replies_in_degree';
 
 -- Follow up with a
 --    cat replies_in_degree/part-r-00000 | sort -nk2 > replies_in_degree.tsv
