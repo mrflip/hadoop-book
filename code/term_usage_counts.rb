@@ -30,10 +30,14 @@ class TermUsageMapper < Wukong::Streamer::StructStreamer
   def process tweet, *_
     TERMS_RE.each do |term, regex|
       if tweet.text =~ regex
-        yield [:usage, term, tweet.tweet_id, tweet.created_at, tweet.user_id, tweet.text, tweet.screen_name, tweet.in_reply_to_user_id, tweet.in_reply_to_screen_name, tweet.iso_language_code, tweet.latitude, tweet.longitude]
+        # , tweet.text, tweet.source
+        yield [:usage, tweet.tweet_id, tweet.created_at, term, tweet.user_id, tweet.screen_name, tweet.in_reply_to_user_id, tweet.in_reply_to_screen_name, tweet.iso_language_code, tweet.latitude, tweet.longitude]
       end
     end
   end
 end
 
 Wukong::Script.new(TermUsageMapper, nil).run
+
+# cat tweet_1.tsv |  ~/ics/hadoop/hadoop_book/code/term_usage_counts.rb --map > /tmp/usages.txt &
+# sort -u /tmp/usages.txt | sort -nk5 > usages.tsv
