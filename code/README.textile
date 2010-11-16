@@ -1,16 +1,10 @@
-
-
 This is divided into two parts.
 
 The code in the @simplified/@ directory runs against the data in @data/simplified@. It's the origin of the actual code from the book, and is optimized for clarity.
 
-h3. Getting a raw sample for yourself.
+h3. Get a raw sample for yourself.
 
-I've included
-
-It's very early code, so you may wish to do a git pull or better yet install from the gem.
-
-h
+I've included a copy of "flamingo,":http://github.com/hayesdavis/flamingo Hayes Davis's client for the Twitter Streaming API. It's very early code though, so you do yourself a favor and @git pull origin master@, or better yet install the gem (@sudo gem install flamingo@).
 
 h2. Actual Code
 
@@ -20,7 +14,7 @@ Here is how I extracted a sub-universe
 
 h3. Community (n1)
 
-Extract @n1_users@ -- every user who
+Extract @n1_ids@ -- every user who
 ** mentioned any of the following terms in the text of a tweet.
   <code>/\b(hadoop|infochimps?|cloudera|map\W*reduce|network\W*graph|big\W*data)\b/i<code>.
 ** Replied to or from @infochimps, @hadoop, or @cloudera.
@@ -36,40 +30,32 @@ h4. Corpus Extraction
 
 h4. Extract users
 
-Identify @n1_users@ as the distinct union of the @user_id@s and @reply_user_id@s in @tweet.tsv@
+Identify @n1_ids@ as the distinct union of the @user_a_id@s and @user_b_id@s in @a_follows_b@, and the @user_id@s and @reply_user_id@s in @tweet.tsv@
 
+h3. Subuniverse Identification
 
-h4. Subuniverse Identification
+* For every account in @n1_ids@, join (using fragment replicate!) on the follow graph and the mention graph to get:
 
-* For every account in @n1_users@, joined on the mention graph and the 
-
-** @n1_fo_o_all@ -- edge pairs
-** @n1_fo_i_all@ -- edge pairs 
-** @n1_at_o_all@ -- edge pairs
-** @n1_at_i_all@ -- edge pairs
+** @n1_fo_o_all@ -- edge pairs where @user_a_id@ is in @n1_ids@
+** @n1_at_o_all@ -- edge pairs where @user_a_id@ is in @n1_ids@
+** @n1_at_i_all@ -- edge pairs where @user_b_id@ is in @n1_ids@
 
 Now, I'd like to filter the latter somewhat, while leaving plenty enough to play with.
 So we'll keep you if you
-* are in n1_users (that is, you've demonstrated some interest, however slight)
-* n1_xx_x is everyone who has any relationship whatsoever to the community, in or out.
+* Are in n1_ids (that is, you've demonstrated some interest, however slight)
+* Have conversed with (in or out) someone in n1
+* Are followed by someon in n1.
 * From this, we extract only those who are followed by, atsigned by, or atsign 5 people in n1. (Following people in n1 carries no weight.)
 * Doing that is straightforward: take everyone on the right-hand side of n1_fo_o_all, n1_at_i_all, and n1_at_o_all, do a GROUP, COUNT and FILTER.
-* Then do a UNION / DISTINCT with n1_users to get n1_users
+* Then do a UNION / DISTINCT with n1_ids to get n2_ids
 
-One way to picture this:
-* color in a set of nodes on the graph,
-* and collect them to lie on a nice little ball in space.
-* Now ask for every edge that connects to any one of those nodes:
-* You'll have a lot of edges within the ball (we'll come back for those later),
-* and a bunch of 'hair': edges off of the ball to other nodes in space.
-* Now give the ball a haircut, pruning everything with only tenuous links.
-* This immerses the community (n1_users) within enough of a larger context (@n2_users@) to treat it as a complete subuniverse.
+Here's the way I picture something like this. Find the nodes that have demonstrated interest (that connect to our seed), and arrange them to lie on a nice little ball in space. Now ask for every edge that connects to any one of those nodes. You'll have a lot of edges within the ball (we'll come back for those later), plus a bunch of 'hair': edges off of the ball to other nodes in space. Now give the ball a haircut, by pruning everything with only tenuous links. This immerses the community (@n1_ids@) within enough larger context to treat it as an effective subuniverse, while trimming off a huge volume of noisy data.
 
 h4. Subuniverse Extraction
 
-For each of the subuniverse nodes (@n2_users@), extract
-* @n1_users@:       User id's only for people who demonstrated interest	user_id
-* @twitter_users@:  Basic metadata for all of n2_users 			user_id, followers_count, friends_count, ....
+For each of the subuniverse nodes (@n2_ids@), extract
+* @n1_ids@:         People who demonstrated interest      	user_id
+* @twitter_users@:  Basic metadata for all of n2_users 		user_id, followers_count, friends_count, ....
 * @a_follows_b@:    user_a_id, user_b_id,
 * @a_atsigns_b@:    user_a_id, user_b_id, tweet_id
 * @wordbag@:        user_id, { (word, rel_freq, freq_ppm), (word, rel_freq, freq_ppm), ... }
@@ -88,3 +74,20 @@ h4. Find N2_edges
 h4. Count Triangles
 
 
+h2. Fun things to learn about humans using this data
+
+Refer to the code at http://github.com/infochimps/chimpmark for code implementing several of the algorithms below.
+
+* *Conversation dynamics*:
+** Compare centrality of actors in the community to the flow of retweets. We suspect that most retweets are by people of low centrality on behalf of people with high centrality. Is this true? Are there common features of the exceptions?
+** How about @atsign mentions?
+** Look at the time delay between the time a message is created and the time of the reply. How does it correspond to the influx (rate at which messages are received)? What does it mean if I respond to your original message after a long delay (in absolute time)? What does is mean if I respond after a long delay (in number of messages I received)? Social scientists put forth, as a rule of thumb, that the natural size of a person's social circle is about 150 people. A great number of twitter users follow many times that many users
+
+* *Interest Centrality*: Some terms are widely used in the big data community. Some people are highly followed. Use a weighted pagerank algorithm to compute centrality on the combined graph. That is, I distribute half my reputation to the people I have strong out links to, and half to the terms I mention. I receive reputation back from each of those terms, and from the people who follow me.
+** If you'd like to run a weighted pagerank, try using the square root of the relative frequency (if I use a word at a rate 25 times more than found on twitter, that has a weight of 5).
+** You might also like to try HITS instead of pagerank.
+
+
+h2. An offer
+
+If you implement any of the programs above and would like to run them on our complete dataset, please get in touch. 
