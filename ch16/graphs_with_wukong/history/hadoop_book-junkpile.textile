@@ -1,0 +1,245 @@
+
+
+
+h2. Why this is a Big Deal
+
+Important patterns:
+
+* It's useful to model your problem from the global point of view, as set operations on the full list of edges, or to model your problem from the node's point of view, as messages passed from point to point. 
+
+* Hadoop not only makes manipulating huge graphs possible, it makes it *fun*. The scripts above are pure business: hadoop handles all the bookkeeping. The exact same script runs across a sample dataset in my laptop or on a terabyte of data spread across 30 machines in our compute cluster
+
+* The algorithms are generic.
+
+[TODO: Will organize, add two more sentences here]
+
+
+[FOOTNOTE] Thanks to Jacob Perkins and Dhruv Bansal for their collaboration on many of the Pig scripts.
+
+===========================================================================
+
+The trick:
+* make the graph undirected as we did above, moving the link direction to edge metadata...
+* but instead of sorting the edge pairs to have lowest id in slot A, put the node with lower degree first.
+* This makes a minimum-skew adjacency list
+
+
+---------------------------------------------------------------------------
+
+**Parser: group in Wukong**
+
+Now to gather all of the out-replies, Think of each left-hand node as a central meeting point for all its edges
+    
+The reducer takes all the edge pairs for a given initial user and accumulates a single set of all the replies to that user
+
+  class ReplyGraphReducer
+    def process_group(recipient_id)
+      repliers = Set.new
+      each_in_group do |recipient_id, replier_id|
+        repliers << replier_id
+      end
+      emit [recipient_id, repliers.join(",")]
+    end
+  end
+
+Finally, we run it:
+
+  Script.run(ReplyGraphMapper, ReplyGraphReducer, :partition_fields => 1, :sort_fields => 2)
+
+Wukong will construct the hadoop streaming command,
+  passing in the script itself
+  You write a single script that 
+
+
+---------------------------------------------------------------------------                
+
+http://twitter.com/hackingdata/status/17603338961
+hadoop 0.21 rc0, from @cloudera's own @tom_e_white: http://people.apache.org/~tomwhite/hadoop-0.21.0-candidate-0/.
+
+* Preference network: nodes are 'movies' and 'people renting movies'. Draw an edge between each movie and the people who rented it; decorate each edge with the user's rating of the movie. (The famous 'Netflix Challenge', which offered a $1M for a 10% better insight into the dynamics of this graph, spurred numerous innovations in machine learning)
+
+
+Of course, the required quantity of data causes its own challenges -- but Hadoopmakes them tractable!
+
+
+
+h3. Nodes with Neighbors vs. Edges with Nodes
+
+We represent a network in two principle ways. The first is an "adjacency list": every node carries a list of its neighbors. For example:
+
+      hadoop            TheASF,cutting
+      infochimps        hadoop,mrflip,TheDataChef,oreillymedia,sxsw
+      THE_REAL_SHAQ     DwightHoward,DanicaPatrick,questlove,mcuban
+      mrflip            infochimps,THE_REAL_SHAQ,hadoop
+      ...
+    
+Most graph algorithms have 
+
+The adjacency list form is compact and easy to understand. It describes the network from the node's point of view, 
+      
+  Advantages: compact. edge list can be about 2x as large.
+  Disadvantages: asymmetric ; more complicated
+    requires holding whole edge list in memory
+    can only join on src.
+
+    The US highway map is, practically speaking, undirected. The Netflix graph is interesting: every edge connects one type of thing ('person') to a different type of thing ('movie'). That extra structure affords algorithms able to unlock extra meaning from such 'bipartite networks'.
+
+    
+h3. A bit more about 
+
+
+
+
+A symmetric link will appear twice in the undirected edge list: once from(Vandelay => IzzyMandelbaum) and once from (IzzyMandelbaum => Vandelay).
+
+You can use this trick any time you need to take the intersection of two sets, as long as each of them are distinct. Here's a command-line equivalent that fits in a tweet with room to spare
+
+  cat edges | ruby -ne 'puts $_.split("\t").sort.join("\t")' | sort | uniq -c | egrep '^ *2 ' | cut -c 9- > symmetric_edges
+
+  def map(a, b)
+    [a, b].sort
+  end
+
+  def get_key a, b
+    [a, b]
+  end
+  def start(a, b)
+    @n = 0
+  end
+  def accumulate a, b
+    @n += 1
+  end
+  def finalize
+    yield key if @n == 2
+  end
+
+h2. Better Reputation: Pagerank
+
+....  
+
+
+
+
+  class ReputableNode < Struct(:id, :fame, :neighbors_str)
+    def neighbors
+      neighbors_str.split("\t")
+    end
+
+    def add_fame f
+      self.fame = self.fame.to_i + f.to_i
+    end
+  end
+
+  # Prepare PR
+  def map node, nbrs
+    yield ReputableNode.new_from_nbrs(node, nbrs)
+  end
+
+  # PR Iteration
+  
+  def map node
+    # mails a copy of the neighbor list to itself
+    yield [node.id, 'edges', node.nbrs_str]
+    # each node sends a little bit of love to all its peeps
+    node.nbrs.each do |nbr|
+      yield [nbr, 'fame', (node_pr / node.nbrs.length)]
+    end
+  end
+
+  def start id, *args
+    node = ReputableNode.new(id)
+  end
+  def accumulate node, msg_type, fame
+    if msg_type == 'edges'
+      ...
+    else # fame
+      node.add_fame fame
+    end
+  end
+  def finalize
+    yield node
+  end
+    
+
+
+
+h2. Branching Out
+
+Hadoop gives you incredible power to digest and explore
+
+
+
+
+
+
+
+
+        jerry                    	costanza81
+        jerry                    	ElaineBenes
+        jerry                    	kramer
+        jerry                    	THE_REAL_PUDDY
+        costanza81                    	jerry
+        costanza81                    	ElaineBenes
+        costanza81                    	kramer
+        costanza81                    	NewmanUSPS
+        costanza81                    	THE_REAL_PUDDY
+        costanza81                    	JPeterman
+        costanza81                    	FRANKCOSTANZA
+        ElaineBenes                    	jerry
+        ElaineBenes                    	costanza81
+        ElaineBenes                    	kramer
+        ElaineBenes                    	THE_REAL_PUDDY
+        ElaineBenes                    	JPeterman
+        kramer                    	jerry
+        kramer                    	costanza81
+        kramer                    	ElaineBenes
+        kramer                    	NewmanUSPS
+        kramer                    	THE_REAL_PUDDY
+        kramer                    	JPeterman
+        kramer                    	FRANKCOSTANZA
+        kramer                    	Bob_Sacamano
+        kramer                    	Lomez
+        kramer                    	JayRiemenschneider
+        kramer                    	CorkyRamirez
+        kramer                          LenNicademo
+        kramer                          Specter
+        kramer                          Brody
+        NewmanUSPS                    	jerry
+        NewmanUSPS                    	costanza81
+        NewmanUSPS                    	ElaineBenes
+        NewmanUSPS                    	kramer
+        THE_REAL_PUDDY            	ElaineBenes
+        FRANKCOSTANZA            	kramer
+        FRANKCOSTANZA            	jerry
+
+
+
+This will fit in a tweet:  
+    def map(*e)e.sort end
+    def get_key(*e)e end
+    def start(*e) @n=0 end
+    def accumulate(*e) @n+=1 end
+    def finalize() yield key if @n==2 end
+    
+
+  * Co-ocurrence of characters in (if you see 最 and 近 used together in a tweet, draw an edge between them -- 最 has much higher edge weight to 近 than to é or ♥).
+
+        
+* Co-ocurrence of characters in (if you see 最 and 近 used together in a tweet, draw an edge between them -- 最 has much higher edge weight to 近 than to é or ♥).
+
+
+If there is a piece of edge metadata that can carry
+
+You might weight social network edges by the strength of demonstrated engagement -- how often did these two users exchange messages, or click on the other's page?  For the highway map, you could weight each edge by volume of traffic or the number of lanes.
+
+
+Two ways of looking at
+
+* message-passing
+* set operations
+
+h3. Influx
+
+* for each user, find tweets out / day
+* 
+    
